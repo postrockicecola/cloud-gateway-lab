@@ -1,0 +1,10 @@
+models:
+  gpt-5:
+    - id: ollama-local
+      provider: openai
+      base_url: http://localhost:11434/v1
+      model_name: llama3.2
+      weight: 5
+      region: local
+      timeout: 60s
+      api_key: ${UPSTREAM_API_KEY}

@@ -1,0 +1,32 @@
+CREATE TABLE IF NOT EXISTS users (
+  id VARCHAR(64) PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  quota BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id VARCHAR(64) PRIMARY KEY,
+  user_id VARCHAR(64) NOT NULL,
+  key_hash CHAR(64) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_key_hash (key_hash),
+  KEY idx_user_id (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS endpoints (
+  id VARCHAR(64) PRIMARY KEY,
+  provider VARCHAR(64) NOT NULL,
+  model VARCHAR(128) NOT NULL,
+  model_name VARCHAR(128) NOT NULL DEFAULT '',
+  base_url VARCHAR(512) NOT NULL,
+  api_key VARCHAR(512) NOT NULL DEFAULT '',
+  status VARCHAR(32) NOT NULL DEFAULT 'active',
+  weight INT NOT NULL DEFAULT 1,
+  region VARCHAR(64) NOT NULL DEFAULT '',
+  timeout_ms INT NOT NULL DEFAULT 60000,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  KEY idx_model_status (model, status)
+);

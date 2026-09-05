@@ -10,6 +10,11 @@ metadata:
   namespace: gateway-lab
 data:
   ROUTES: users=http://users:8080,products=http://products:8080
+  RATE_LIMIT_BACKEND: redis
+  RATE_LIMIT_LIMIT: "10"
+  RATE_LIMIT_WINDOW: 1s
+  REDIS_ADDR: redis:6379
+  QUOTA_DEFAULT: "25"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,6 +73,52 @@ spec:
     - name: http
       port: 8080
       targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: gateway-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - name: redis
+              containerPort: 6379
+          readinessProbe:
+            tcpSocket:
+              port: redis
+            periodSeconds: 3
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: gateway-lab
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
 ---
 apiVersion: apps/v1
 kind: Deployment
