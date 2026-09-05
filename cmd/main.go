@@ -20,6 +20,8 @@ import (
 	"cloud-gateway-lab/internal/endpoint"
 	"cloud-gateway-lab/internal/health"
 	"cloud-gateway-lab/internal/provider"
+	"cloud-gateway-lab/internal/provider/azure"
+	"cloud-gateway-lab/internal/provider/claude"
 	"cloud-gateway-lab/internal/provider/openai"
 	"cloud-gateway-lab/internal/retry"
 	"cloud-gateway-lab/internal/store"
@@ -100,6 +102,8 @@ func main() {
 
 	reg := provider.NewRegistry()
 	openai.Register(reg)
+	azure.Register(reg)
+	claude.Register(reg)
 
 	index := prefixcache.New(envInt("PREFIX_MIN_MATCH", 16), 0.2)
 	for _, prefix := range []string{

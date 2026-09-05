@@ -62,7 +62,7 @@ LIMIT 1`
 func (m *MySQL) ListEndpoints(ctx context.Context) ([]endpoint.Endpoint, error) {
 	const q = `
 SELECT id, provider, model, COALESCE(model_name, ''), base_url, COALESCE(api_key, ''),
-       weight, COALESCE(region, ''), timeout_ms
+       weight, COALESCE(region, ''), timeout_ms, COALESCE(api_version, '')
 FROM endpoints
 WHERE status = 'active'`
 	rows, err := m.db.QueryContext(ctx, q)
@@ -75,7 +75,7 @@ WHERE status = 'active'`
 	for rows.Next() {
 		var ep endpoint.Endpoint
 		var timeoutMS int
-		if err := rows.Scan(&ep.ID, &ep.Provider, &ep.Model, &ep.ModelName, &ep.BaseURL, &ep.APIKey, &ep.Weight, &ep.Region, &timeoutMS); err != nil {
+		if err := rows.Scan(&ep.ID, &ep.Provider, &ep.Model, &ep.ModelName, &ep.BaseURL, &ep.APIKey, &ep.Weight, &ep.Region, &timeoutMS, &ep.APIVersion); err != nil {
 			return nil, err
 		}
 		if timeoutMS > 0 {

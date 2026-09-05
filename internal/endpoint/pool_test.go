@@ -1,6 +1,7 @@
 package endpoint
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -63,11 +64,34 @@ models:
       provider: openai
       base_url: http://localhost:11434/v1
       weight: 2
+      api_version: 2024-06-01
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(eps) != 1 || eps[0].ID != "local" || eps[0].Model != "gpt-5" {
+	if len(eps) != 1 || eps[0].ID != "local" || eps[0].Model != "gpt-5" || eps[0].APIVersion != "2024-06-01" {
 		t.Fatalf("%+v", eps)
+	}
+}
+
+func TestProbeURLAndAuth(t *testing.T) {
+	az := Endpoint{Provider: "azure", BaseURL: "https://res.openai.azure.com", APIKey: "k", APIVersion: "2024-06-01"}
+	if got := az.ProbeURL(); got != "https://res.openai.azure.com/openai/models?api-version=2024-06-01" {
+		t.Fatalf("azure probe = %s", got)
+	}
+	req, _ := http.NewRequest(http.MethodGet, az.ProbeURL(), nil)
+	az.SetAuth(req)
+	if req.Header.Get("api-key") != "k" || req.Header.Get("Authorization") != "" {
+		t.Fatalf("azure headers = %v", req.Header)
+	}
+
+	cl := Endpoint{Provider: "claude", BaseURL: "https://api.anthropic.com", APIKey: "ck"}
+	if got := cl.ProbeURL(); got != "https://api.anthropic.com/v1/models" {
+		t.Fatalf("claude probe = %s", got)
+	}
+	req, _ = http.NewRequest(http.MethodGet, cl.ProbeURL(), nil)
+	cl.SetAuth(req)
+	if req.Header.Get("x-api-key") != "ck" || req.Header.Get("anthropic-version") == "" {
+		t.Fatalf("claude headers = %v", req.Header)
 	}
 }

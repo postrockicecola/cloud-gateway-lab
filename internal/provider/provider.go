@@ -12,6 +12,8 @@ import (
 	"cloud-gateway-lab/internal/types"
 )
 
+// ModelProvider is the only type Router and the HTTP layer depend on.
+// Each vendor adapter converts the vendor protocol to ChatRequest/ChatResponse.
 type ModelProvider interface {
 	Chat(ctx context.Context, req *types.ChatRequest) (*types.ChatResponse, error)
 	ChatStream(ctx context.Context, req *types.ChatRequest, w http.ResponseWriter) (*types.Usage, error)

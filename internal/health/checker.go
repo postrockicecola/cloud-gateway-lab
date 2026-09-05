@@ -5,7 +5,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"cloud-gateway-lab/internal/endpoint"
@@ -83,15 +82,12 @@ func (c *Checker) Check(ctx context.Context, ep endpoint.Endpoint) {
 	probeCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	url := strings.TrimRight(ep.BaseURL, "/") + "/models"
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, ep.ProbeURL(), nil)
 	if err != nil {
 		c.mark(ep.ID, false, "health check build failed", "error", err)
 		return
 	}
-	if ep.APIKey != "" {
-		req.Header.Set("Authorization", "Bearer "+ep.APIKey)
-	}
+	ep.SetAuth(req)
 
 	resp, err := c.client.Do(req)
 	if err != nil {

@@ -19,8 +19,9 @@ type fileEndpoint struct {
 	APIKey    string `yaml:"api_key"`
 	Weight    int    `yaml:"weight"`
 	Region    string `yaml:"region"`
-	ModelName string `yaml:"model_name"`
-	Timeout   string `yaml:"timeout"`
+	ModelName  string `yaml:"model_name"`
+	Timeout    string `yaml:"timeout"`
+	APIVersion string `yaml:"api_version"`
 }
 
 func LoadYAML(path string) ([]Endpoint, error) {
@@ -45,9 +46,10 @@ func ParseYAML(body []byte) ([]Endpoint, error) {
 				Model:     model,
 				ModelName: ExpandEnv(raw.ModelName),
 				BaseURL:   ExpandEnv(raw.BaseURL),
-				APIKey:    ExpandEnv(raw.APIKey),
-				Region:    raw.Region,
-				Weight:    raw.Weight,
+				APIKey:     ExpandEnv(raw.APIKey),
+				Region:     raw.Region,
+				Weight:     raw.Weight,
+				APIVersion: ExpandEnv(raw.APIVersion),
 			}
 			if raw.Timeout != "" {
 				d, err := time.ParseDuration(raw.Timeout)

@@ -1,10 +1,11 @@
-package openai
+package azure
 
 import (
 	"bytes"
 	"context"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"cloud-gateway-lab/internal/endpoint"
@@ -13,19 +14,23 @@ import (
 	"cloud-gateway-lab/internal/types"
 )
 
+// Adapter talks to Azure OpenAI. The JSON body is OpenAI-compatible;
+// the URL and api-key header are not.
 type Adapter struct {
-	baseURL   string
-	apiKey    string
-	modelName string
-	client    *http.Client
+	baseURL    string
+	apiKey     string
+	deployment string
+	apiVersion string
+	client     *http.Client
 }
 
 func New(ep endpoint.Endpoint) *Adapter {
 	return &Adapter{
-		baseURL:   strings.TrimRight(ep.BaseURL, "/"),
-		apiKey:    ep.APIKey,
-		modelName: ep.ModelName,
-		client:    provider.NewHTTPClient(ep.Timeout),
+		baseURL:    strings.TrimRight(ep.BaseURL, "/"),
+		apiKey:     ep.APIKey,
+		deployment: ep.ModelName,
+		apiVersion: ep.AzureAPIVersion(),
+		client:     provider.NewHTTPClient(ep.Timeout),
 	}
 }
 
@@ -66,17 +71,18 @@ func (a *Adapter) ChatStream(ctx context.Context, req *types.ChatRequest, w http
 }
 
 func (a *Adapter) do(ctx context.Context, req *types.ChatRequest, stream bool) (*http.Response, error) {
-	body, err := openaicompat.MarshalRequest(a.upstreamModel(req.Model), req, stream)
+	// Azure binds the model to the deployment in the path; omit body.model.
+	body, err := openaicompat.MarshalRequest("", req, stream)
 	if err != nil {
 		return nil, &provider.Error{Message: err.Error()}
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL+"/chat/completions", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, a.chatURL(req.Model), bytes.NewReader(body))
 	if err != nil {
 		return nil, &provider.Error{Message: err.Error()}
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	if a.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+a.apiKey)
+		httpReq.Header.Set("api-key", a.apiKey)
 	}
 	resp, err := a.client.Do(httpReq)
 	if err != nil {
@@ -85,14 +91,25 @@ func (a *Adapter) do(ctx context.Context, req *types.ChatRequest, stream bool) (
 	return resp, nil
 }
 
-func (a *Adapter) upstreamModel(requested string) string {
-	if a.modelName != "" {
-		return a.modelName
+func (a *Adapter) chatURL(requested string) string {
+	deploy := a.deployment
+	if deploy == "" {
+		deploy = requested
 	}
-	return requested
+	root := a.baseURL
+	if !strings.Contains(root, "/openai") {
+		root += "/openai"
+	}
+	u, err := url.Parse(root + "/deployments/" + url.PathEscape(deploy) + "/chat/completions")
+	if err != nil {
+		return root + "/deployments/" + deploy + "/chat/completions?api-version=" + a.apiVersion
+	}
+	q := u.Query()
+	q.Set("api-version", a.apiVersion)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func Register(reg *provider.Registry) {
-	reg.Register("openai", func(ep endpoint.Endpoint) provider.ModelProvider { return New(ep) })
-	reg.Register("ollama", func(ep endpoint.Endpoint) provider.ModelProvider { return New(ep) })
+	reg.Register("azure", func(ep endpoint.Endpoint) provider.ModelProvider { return New(ep) })
 }

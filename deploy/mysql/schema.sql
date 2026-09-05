@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS endpoints (
   weight INT NOT NULL DEFAULT 1,
   region VARCHAR(64) NOT NULL DEFAULT '',
   timeout_ms INT NOT NULL DEFAULT 60000,
+  api_version VARCHAR(64) NOT NULL DEFAULT '',
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY idx_model_status (model, status)
 );

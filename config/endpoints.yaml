@@ -8,3 +8,22 @@ models:
       region: local
       timeout: 60s
       api_key: ${UPSTREAM_API_KEY}
+
+    # Azure OpenAI: deployment name goes in model_name; auth is api-key.
+    # - id: azure-eastus
+    #   provider: azure
+    #   base_url: https://${AZURE_OPENAI_RESOURCE}.openai.azure.com
+    #   model_name: gpt-4o-deploy
+    #   api_version: 2024-02-15-preview
+    #   weight: 3
+    #   region: eastus
+    #   api_key: ${AZURE_OPENAI_API_KEY}
+
+  # Anthropic Messages API. Clients still call POST /v1/chat/completions.
+  # - claude-sonnet:
+  #     - id: anthropic
+  #       provider: claude
+  #       base_url: https://api.anthropic.com
+  #       model_name: claude-sonnet-4-5
+  #       weight: 1
+  #       api_key: ${ANTHROPIC_API_KEY}
