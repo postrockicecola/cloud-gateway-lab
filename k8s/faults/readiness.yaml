@@ -1,0 +1,61 @@
+# Experiment 4: process is up, readiness probe misses.
+# Expected: Running, Ready=False  (Running != Ready)
+# The Pod stays off the Service EndpointSlice.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fault-readiness
+  namespace: gateway-lab
+  labels:
+    experiment: fault
+    demo: readiness
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fault-readiness
+  template:
+    metadata:
+      labels:
+        app: fault-readiness
+        experiment: fault
+        demo: readiness
+    spec:
+      containers:
+        - name: mockprovider
+          image: cloud-gateway-lab/mockprovider:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PROVIDER_NAME
+              value: fault-readiness
+          readinessProbe:
+            httpGet:
+              path: /does-not-exist
+              port: http
+            periodSeconds: 3
+            failureThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fault-readiness
+  namespace: gateway-lab
+spec:
+  selector:
+    app: fault-readiness
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -39,8 +40,8 @@ func main() {
 		WriteTimeout: 2 * time.Second,
 		PoolSize:     32,
 	})
-	pingCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	if err := rdb.Ping(pingCtx).Err(); err != nil {
+	pingCtx, cancel := context.WithTimeout(context.Background(), envDuration("REDIS_STARTUP_TIMEOUT", 15*time.Second))
+	if err := waitForRedis(pingCtx, rdb); err != nil {
 		cancel()
 		logger.Error("redis unavailable", "error", err)
 		os.Exit(1)
@@ -178,6 +179,25 @@ func main() {
 	defer shutdownCancel()
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
+	}
+}
+
+func waitForRedis(ctx context.Context, rdb *redis.Client) error {
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		if err := rdb.Ping(ctx).Err(); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for redis: %w", lastErr)
+		case <-ticker.C:
+		}
 	}
 }
 

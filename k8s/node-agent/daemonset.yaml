@@ -1,0 +1,53 @@
+# DaemonSet: one Pod on every eligible Node.
+# Deployment asks for N replicas; DaemonSet asks for one Pod per Node.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-agent
+  namespace: gateway-lab
+spec:
+  selector:
+    matchLabels:
+      app: node-agent
+  template:
+    metadata:
+      labels:
+        app: node-agent
+    spec:
+      containers:
+        - name: node-agent
+          image: alpine:3.20
+          command:
+            - /bin/sh
+            - -c
+            - |
+              while true; do
+                echo "=== node-agent $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+                echo "hostname=$(hostname)"
+                echo "pod=${POD_NAME}"
+                echo "node=${NODE_NAME}"
+                echo "--- cpu (container view of /proc/loadavg) ---"
+                cat /proc/loadavg
+                echo "--- memory ---"
+                awk '/MemTotal|MemAvailable|MemFree/ {print}' /proc/meminfo
+                echo "--- disk ---"
+                df -h / | tail -1
+                echo
+                sleep 30
+              done
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi

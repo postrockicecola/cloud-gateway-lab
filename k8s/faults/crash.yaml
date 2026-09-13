@@ -1,0 +1,34 @@
+# Experiment 3: container exits immediately.
+# Expected: CrashLoopBackOff
+# kubectl logs fault-crash -n gateway-lab
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fault-crash
+  namespace: gateway-lab
+  labels:
+    experiment: fault
+    demo: crash
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fault-crash
+  template:
+    metadata:
+      labels:
+        app: fault-crash
+        experiment: fault
+        demo: crash
+    spec:
+      containers:
+        - name: mockprovider
+          image: cloud-gateway-lab/mockprovider:dev
+          imagePullPolicy: Never
+          env:
+            - name: CRASH_ON_START
+              value: "1"
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi

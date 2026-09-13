@@ -1,67 +1,45 @@
-# 第二天练习：滑动窗口限流与 Redis 预扣费
+# Day 2：多副本 Redis 限流与 token 配额
 
-第一天把网关做成了 **2 个副本**。这正好是分布式竞态的舞台：同一用户的请求会打到不同 gateway Pod。如果每台机器自己数，或者各自对 Redis 做 `GET → 判断 → SET`，两台都会放行「还剩 1 次」的请求。
-
-今天把限流和配额做成**所有副本共享的一张账本**。账本在 Redis 里，读写收成一条 Lua 脚本。
+两个 Gateway Pod 不能各自在内存中维护限流和余额，否则同一用户会得到两份独立额度。本项目用 Redis Lua 将“清理窗口、计数、判断、写入、预扣 token”合并成一次原子操作。
 
 ## 请求链路
 
 ```text
-client
-  → gateway Service
-  → 某个 gateway Pod
-       1. 滑动窗口限流（按 路由 + 身份）
-       2. 预扣费 / 配额（按身份）
-       3. 反代到 users / products
+Client
+  → Service/gateway
+  → Gateway Pod A 或 B
+       1. 按 user ID 执行滑动窗口限流
+       2. 预扣 prompt 估算值 + completion reserve
+       3. 调用 mock provider
+       4. 按响应 usage 结算，多退少补
+  → Redis 共享窗口和余额
 ```
 
-身份优先读 `X-User-ID`（开放平台套餐），否则用 `X-Forwarded-For` / 对端 IP。
+集群默认使用以下参数：
 
-集群默认配置在 `deploy/k8s/base/resources.yaml`：
+- `RATE_LIMIT=10`：一个窗口最多接受 10 个请求
+- `RATE_LIMIT_WINDOW=1s`：滑动窗口长度
+- `DEFAULT_BALANCE=10000`：首次访问时初始化的 token 余额
+- `COMPLETION_RESERVE=32`：请求前预留的 completion token
+- `REDIS_ADDR=redis:6379`：所有 Gateway Pod 使用同一 Redis
 
-| 变量 | 默认值 | 含义 |
-|---|---|---|
-| `RATE_LIMIT_BACKEND` | `redis` | `memory` 是单机窗口，会超卖 |
-| `RATE_LIMIT_LIMIT` | `10` | 窗口内最多放行次数 |
-| `RATE_LIMIT_WINDOW` | `1s` | 滑动窗口长度 |
-| `QUOTA_DEFAULT` | `25` | 每个身份的初始余额；`0` 表示关闭预扣 |
-| `REDIS_ADDR` | `redis:6379` | 共享账本 |
+## 练习 1：触发共享限流
 
-本地 `go run ./cmd/gateway` 默认是内存限流、100 次/秒、不扣配额，方便三终端联调。
-
-## 为什么必须是 Redis + Lua
-
-滑动窗口这 4 步必须一起成功或一起不可见：
-
-1. 清掉窗口外的时间戳 `ZREMRANGEBYSCORE`
-2. 统计窗口内数量 `ZCARD`
-3. 判断是否超限
-4. 未超限则 `ZADD` 写入本次请求
-
-脚本在 `internal/ratelimit/sliding_window.lua`。Redis 把整段 `EVAL` 当成一条命令，别的 gateway Pod 插不进中间态。
-
-Sorted Set 的 member 必须全局唯一：score 是毫秒时间戳，同一毫秒里两台机器如果写入同一个 member，`ZADD` 会覆盖而不是新增，窗口计数偏小，限流被击穿。实现里用「时间戳 + 实例 ID + 序号」。
-
-预扣费同理，见 `internal/quota/reserve.lua`：读余额 → 判断 → 扣减，避免两台机器花掉最后一枚 token。
-
-`atomic.Uint64` 救不了这件事。它只保证**一个进程**里计数不丢；两个 Pod 各有一份内存。
-
-## 练习
-
-做之前先 `make images && make load && make deploy && make port-forward`。
-
-### 1. 同一用户打满滑动窗口
+快速发送 15 个请求：
 
 ```bash
 for i in $(seq 1 15); do
-  curl -s -o /tmp/body -w "%{http_code} remaining=%header{X-RateLimit-Remaining}\n" \
-    -H "X-User-ID: alice" http://localhost:8080/api/users/1
+  curl -s -o /dev/null -w "%{http_code}\n" \
+    http://localhost:8080/v1/chat/completions \
+    -H "Authorization: Bearer sk-lab" \
+    -H "Content-Type: application/json" \
+    -d '{"model":"gpt-5","messages":[{"role":"user","content":"hello"}]}'
 done
 ```
 
-预期：大约前 10 个 `200`，后面 `429`，`Retry-After: 1`。等 1 秒再打，窗口滑开，又能通过。
+预期会先出现 `200`，随后出现 `429`。由于本地请求和处理耗时会让窗口向前滑动，精确数量可能略有差异。
 
-看指标：
+查看指标：
 
 ```bash
 curl -s http://localhost:8080/metrics
@@ -69,43 +47,69 @@ curl -s http://localhost:8080/metrics
 
 `gateway_rate_limited_total` 应增加。
 
-### 2. 两个副本共用一本账
+## 练习 2：确认两个副本共用 Redis
 
 ```bash
 kubectl get pods -n gateway-lab -l app=gateway -o wide
-kubectl logs -n gateway-lab -l app=gateway --tail=20
+kubectl logs -n gateway-lab -l app=gateway --prefix --tail=50
+kubectl exec -n gateway-lab deploy/redis -- redis-cli KEYS 'llm:*'
+kubectl exec -n gateway-lab deploy/redis -- redis-cli ZCARD 'llm:rl:alice'
+kubectl exec -n gateway-lab deploy/redis -- redis-cli GET 'llm:bal:alice'
 ```
 
-连续请求会落到不同 Pod（日志里的 hostname / 时间交错），但 Redis 里同一个 key 的计数是共享的。用 redis-cli 看窗口：
+日志会来自不同 Gateway Pod，但两个副本读写的是同一个 `llm:rl:alice` 和 `llm:bal:alice`。
+
+## 练习 3：观察 token 预扣和结算
+
+Mock provider 每次返回固定 usage：
+
+```json
+{
+  "prompt_tokens": 4,
+  "completion_tokens": 4,
+  "total_tokens": 8
+}
+```
+
+网关在调用上游前会按本地估算预扣 token；收到成功响应后，以 `total_tokens=8` 结算并退回多扣部分。
+
+先记录余额，等待限流窗口结束后发起一次请求，再读取余额：
 
 ```bash
-kubectl exec -n gateway-lab deploy/redis -- redis-cli KEYS 'gw:*'
-kubectl exec -n gateway-lab deploy/redis -- redis-cli ZCARD 'gw:rl:users:user:alice'
+kubectl exec -n gateway-lab deploy/redis -- redis-cli GET 'llm:bal:alice'
+sleep 1
+curl -s http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer sk-lab" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-5","messages":[{"role":"user","content":"hello"}]}'
+kubectl exec -n gateway-lab deploy/redis -- redis-cli GET 'llm:bal:alice'
 ```
 
-### 3. 对比：改成内存限流会超卖
+成功请求最终扣除 8 token。
 
-把 ConfigMap 的 `RATE_LIMIT_BACKEND` 改成 `memory`，应用后重启网关，再跑练习 1 的循环。两个 Pod 各放行最多 10 次，同一用户可能看到超过 10 个 `200`。改回 `redis` 后现象消失。
+## 为什么使用 Lua
 
-### 4. 配额预扣
+如果应用依次执行 `ZREMRANGEBYSCORE → ZCARD → 判断 → ZADD`，两个 Pod 可能同时看到“还有一个名额”，然后都放行。Redis Lua 在单次脚本执行期间不会被其他命令插入，因此判断和写入是一个原子操作。
 
-集群默认每个身份 25 次。多打几轮（中间等窗口滑开），第 26 个成功请求之前会看到 `403 quota exceeded` 和 `X-Quota-Remaining: 0`。
+配额预扣也必须把“读取余额、判断余额、扣减”放在同一脚本中，否则两个请求可能同时花掉最后一笔余额。
+
+对应实现位于：
+
+- [`pkg/limiter/limiter.go`](../pkg/limiter/limiter.go)
+- [`lua/rate_limit_prededuct.lua`](../lua/rate_limit_prededuct.lua)
+
+## Redis 不可用时
 
 ```bash
-kubectl exec -n gateway-lab deploy/redis -- redis-cli GET 'gw:quota:user:alice'
+kubectl scale deployment/redis -n gateway-lab --replicas=0
+curl -i http://localhost:8080/readyz
 ```
 
-### 5. Redis 挂了会发生什么
+`/readyz` 会返回 `503`，业务请求也会 fail-closed，而不是绕过限流。恢复 Redis：
 
 ```bash
-kubectl delete pod -n gateway-lab -l app=redis
-curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/readyz
+kubectl scale deployment/redis -n gateway-lab --replicas=1
+kubectl rollout status deployment/redis -n gateway-lab
 ```
 
-预期：`/readyz` 变 `503`，网关从 Service 摘流；业务请求在 Redis 恢复前 fail-closed（`503 limiter unavailable`），而不是偷偷放行。Deployment 会把 redis Pod 拉起来，就绪后再接流量。
-
-## 和面试话术的对应
-
-> 评估流量 → 静态/动态限流防御 → 内存级预扣（Redis+Lua） → 最终一致性保障
-
-当前仓库覆盖了前三段。异步解冻 / MQ 结算还没做，余额扣减是同步预扣，适合先把「多副本不能拆开 check-and-set」讲清楚。
+下一步参见 [Day 3](day3-failover.md)，观察 endpoint 探活、熔断和跨 provider 故障转移。

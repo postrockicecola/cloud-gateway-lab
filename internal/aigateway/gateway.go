@@ -4,11 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -113,6 +115,12 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case "/metrics":
 		g.metrics.write(w, g.pool)
 		return
+	case "/model-status":
+		g.writeModelStatus(w)
+		return
+	case "/node-status":
+		g.writeNodeStatus(w)
+		return
 	}
 
 	if r.URL.Path != "/v1/chat/completions" {
@@ -128,6 +136,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	requestID := incomingRequestID(r)
 	w.Header().Set(requestIDHeader, requestID)
 	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	g.metrics.active.Add(1)
+	defer g.metrics.active.Add(-1)
 
 	user, err := g.authenticate(r)
 	if err != nil {
@@ -160,6 +170,8 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Model Router: pick a healthy model instance for this request.
+	// Kubernetes Scheduler is not involved here; it already placed the Pods.
 	usage, ferr := g.forward(r.Context(), sw, req, user, requestID)
 	actual := int64(0)
 	if usage != nil {
@@ -331,6 +343,79 @@ func (g *Gateway) estimateTokens(req *types.ChatRequest) int64 {
 	return n
 }
 
+// writeModelStatus reports Model Router state: which instances can serve
+// which models. This is request routing, not Kubernetes Pod placement.
+func (g *Gateway) writeModelStatus(w http.ResponseWriter) {
+	type instance struct {
+		ID        string `json:"id"`
+		Model     string `json:"model"`
+		Provider  string `json:"provider"`
+		BaseURL   string `json:"base_url"`
+		Weight    int    `json:"weight"`
+		Health    string `json:"health"`
+		Breaker   string `json:"breaker"`
+		LatencyMS int64  `json:"latency_ms"`
+	}
+	out := struct {
+		Note           string     `json:"note"`
+		ActiveRequests int64      `json:"active_requests"`
+		RequestsTotal  uint64     `json:"requests_total"`
+		ErrorsTotal    uint64     `json:"errors_total"`
+		LatencyMSSum   uint64     `json:"request_latency_ms_sum"`
+		Instances      []instance `json:"instances"`
+	}{
+		Note:           "Model Router selects a model instance for a request. Kubernetes Scheduler places Pods onto Nodes.",
+		ActiveRequests: g.metrics.active.Load(),
+		RequestsTotal:  g.metrics.requests.Load(),
+		ErrorsTotal:    g.metrics.errors.Load(),
+		LatencyMSSum:   g.metrics.latencyMS.Load(),
+		Instances:      []instance{},
+	}
+	if g.pool != nil {
+		for _, st := range g.pool.Snapshot() {
+			out.Instances = append(out.Instances, instance{
+				ID:        st.Endpoint.ID,
+				Model:     st.Endpoint.Model,
+				Provider:  st.Endpoint.Provider,
+				BaseURL:   st.Endpoint.BaseURL,
+				Weight:    st.Endpoint.Weight,
+				Health:    st.Health.String(),
+				Breaker:   st.Breaker.String(),
+				LatencyMS: st.LatencyMS,
+			})
+		}
+	}
+	writeJSON(w, out)
+}
+
+// writeNodeStatus reports this Gateway Pod's identity. It is not a cluster
+// node inventory; kubelet and the Kubernetes Scheduler own that view.
+func (g *Gateway) writeNodeStatus(w http.ResponseWriter) {
+	hostname, _ := os.Hostname()
+	writeJSON(w, map[string]any{
+		"hostname":  hostname,
+		"pod":       envOr("POD_NAME", hostname),
+		"namespace": envOr("POD_NAMESPACE", ""),
+		"pod_ip":    envOr("POD_IP", ""),
+		"node":      envOr("NODE_NAME", ""),
+		"note":      "This is the Gateway Pod, placed by the Kubernetes Scheduler. Model Router does not choose Nodes.",
+	})
+}
+
+func writeJSON(w http.ResponseWriter, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(value)
+}
+
+func envOr(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
 func (g *Gateway) writeLimiterError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, limiter.ErrRateLimitExceeded):
@@ -468,6 +553,7 @@ type metrics struct {
 	authRejected  atomic.Uint64
 	latencyMS     atomic.Uint64
 	tokenUsage    atomic.Uint64
+	active        atomic.Int64
 	providerErrs  *atomicMap
 }
 
@@ -496,7 +582,8 @@ func (m *metrics) write(w http.ResponseWriter, pool *endpoint.Pool) {
 			"gateway_quota_rejected_total %d\n"+
 			"gateway_auth_rejected_total %d\n"+
 			"gateway_request_latency_ms_sum %d\n"+
-			"gateway_token_usage_total %d\n",
+			"gateway_token_usage_total %d\n"+
+			"gateway_active_requests %d\n",
 		m.requests.Load(),
 		m.errors.Load(),
 		m.rateLimited.Load(),
@@ -504,6 +591,7 @@ func (m *metrics) write(w http.ResponseWriter, pool *endpoint.Pool) {
 		m.authRejected.Load(),
 		m.latencyMS.Load(),
 		m.tokenUsage.Load(),
+		m.active.Load(),
 	)
 	for id, n := range m.providerErrs.snapshot() {
 		_, _ = fmt.Fprintf(w, "gateway_provider_errors_total{endpoint=%q} %d\n", id, n)

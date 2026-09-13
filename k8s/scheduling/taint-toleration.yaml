@@ -1,0 +1,47 @@
+# Apply after: kubectl taint node <node> gpu=true:NoSchedule
+# ordinary-no-toleration stays Pending on the tainted node.
+# gpu-with-toleration can be scheduled there.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ordinary-no-toleration
+  namespace: gateway-lab
+  labels:
+    experiment: scheduling
+    demo: taint
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    gpu: "true"
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.10
+      resources:
+        requests:
+          cpu: 10m
+          memory: 8Mi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-with-toleration
+  namespace: gateway-lab
+  labels:
+    experiment: scheduling
+    demo: taint
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    gpu: "true"
+  tolerations:
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.10
+      resources:
+        requests:
+          cpu: 10m
+          memory: 8Mi

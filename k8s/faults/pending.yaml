@@ -1,0 +1,22 @@
+# Experiment 1: Scheduler finds no matching Node.
+# Expected: Pending, NODE=<none>
+# kubectl describe pod pending-nosuch-label -n gateway-lab
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pending-nosuch-label
+  namespace: gateway-lab
+  labels:
+    experiment: fault
+    demo: pending
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    workload: nonexistent
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.10
+      resources:
+        requests:
+          cpu: 10m
+          memory: 8Mi

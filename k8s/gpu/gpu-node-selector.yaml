@@ -1,0 +1,27 @@
+# Combines the three GPU-node controls:
+#   1. nodeSelector gpu=true          — which class of Node
+#   2. toleration gpu=true:NoSchedule — permission to land on a tainted GPU Node
+#   3. nvidia.com/gpu: 1              — enough advertised GPU resource
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-labeled-workload
+  namespace: gateway-lab
+  labels:
+    experiment: gpu
+    demo: nvidia-gpu
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    gpu: "true"
+  tolerations:
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  containers:
+    - name: pause
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1-ubuntu20.04
+      resources:
+        limits:
+          nvidia.com/gpu: 1

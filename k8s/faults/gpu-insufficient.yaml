@@ -1,0 +1,23 @@
+# Experiment 5: Node advertises 1 mock GPU, Pod asks for 2.
+# Prerequisite: make gpu-deploy (mock mode)
+# Expected: Pending because available < requested
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fault-gpu-insufficient
+  namespace: gateway-lab
+  labels:
+    experiment: fault
+    demo: gpu-insufficient
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    gpu: "true"
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.10
+      resources:
+        requests:
+          example.com/mock-gpu: 2
+        limits:
+          example.com/mock-gpu: 2

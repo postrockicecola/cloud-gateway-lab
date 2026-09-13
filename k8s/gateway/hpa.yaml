@@ -1,0 +1,23 @@
+# HPA scales Gateway replica count from CPU utilization.
+# It is not a GPU scheduler and does not choose Nodes or model instances.
+#
+# Requires metrics-server (make hpa-setup). Not part of the default stack.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway
+  namespace: gateway-lab
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50

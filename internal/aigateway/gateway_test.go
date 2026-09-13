@@ -151,6 +151,33 @@ func TestRateLimited(t *testing.T) {
 	}
 }
 
+func TestModelAndNodeStatus(t *testing.T) {
+	g := newTestGateway(t, []endpoint.Endpoint{
+		endpoint.Single("local", "gpt-5", "http://127.0.0.1:1", ""),
+	}, "sk-alice:alice")
+
+	rec := httptest.NewRecorder()
+	g.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/model-status", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("model-status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"active_requests", "instances", "local", "gpt-5"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("model-status missing %q: %s", want, body)
+		}
+	}
+
+	rec = httptest.NewRecorder()
+	g.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/node-status", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("node-status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "hostname") {
+		t.Fatalf("node-status = %s", rec.Body.String())
+	}
+}
+
 func TestMetricsAndHealthz(t *testing.T) {
 	g := newTestGateway(t, []endpoint.Endpoint{
 		endpoint.Single("local", "gpt-5", "http://127.0.0.1:1", ""),
@@ -168,6 +195,9 @@ func TestMetricsAndHealthz(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "gateway_endpoint_healthy") {
 		t.Fatalf("metrics missing endpoint health: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "gateway_active_requests") {
+		t.Fatalf("metrics missing active requests: %s", rec.Body.String())
 	}
 }
 
@@ -191,11 +221,11 @@ func newTestGateway(t *testing.T, eps []endpoint.Endpoint, keys string) *Gateway
 		t.Fatal(err)
 	}
 	g, err := New(Config{
-		Auth:    auth.New(mem),
-		Limiter: lim,
-		Pool:    pool,
+		Auth:      auth.New(mem),
+		Limiter:   lim,
+		Pool:      pool,
 		Providers: reg,
-		Retry:   retry.Config{MaxAttempts: 3, BaseDelay: time.Millisecond},
+		Retry:     retry.Config{MaxAttempts: 3, BaseDelay: time.Millisecond},
 	})
 	if err != nil {
 		t.Fatal(err)

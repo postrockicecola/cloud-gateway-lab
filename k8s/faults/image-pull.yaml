@@ -1,0 +1,20 @@
+# Experiment 2: kubelet cannot pull the image.
+# Expected: ImagePullBackOff (or ErrImagePull)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fault-image-pull
+  namespace: gateway-lab
+  labels:
+    experiment: fault
+    demo: image
+spec:
+  restartPolicy: Never
+  containers:
+    - name: missing
+      image: mock-model:does-not-exist
+      imagePullPolicy: Always
+      resources:
+        requests:
+          cpu: 10m
+          memory: 8Mi

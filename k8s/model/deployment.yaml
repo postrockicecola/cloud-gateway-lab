@@ -1,0 +1,161 @@
+# Three model-instance Deployments share the mockprovider image.
+# Gateway Model Router picks among them; Kubernetes Scheduler places each Pod.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model
+  namespace: gateway-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model
+  template:
+    metadata:
+      labels:
+        app: model
+        role: model-instance
+    spec:
+      containers:
+        - name: mockprovider
+          image: cloud-gateway-lab/mockprovider:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: model-config
+          env:
+            - name: MOCK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: MOCK_PROVIDER_API_KEY
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-a
+  namespace: gateway-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-a
+  template:
+    metadata:
+      labels:
+        app: mock-a
+        role: model-instance
+    spec:
+      containers:
+        - name: mockprovider
+          image: cloud-gateway-lab/mockprovider:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PROVIDER_NAME
+              value: mock-a
+            - name: MOCK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: MOCK_PROVIDER_API_KEY
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-b
+  namespace: gateway-lab
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-b
+  template:
+    metadata:
+      labels:
+        app: mock-b
+        role: model-instance
+    spec:
+      containers:
+        - name: mockprovider
+          image: cloud-gateway-lab/mockprovider:dev
+          imagePullPolicy: Never
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: PROVIDER_NAME
+              value: mock-b
+            - name: MOCK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: MOCK_PROVIDER_API_KEY
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 25m
+              memory: 16Mi
+            limits:
+              cpu: 250m
+              memory: 64Mi

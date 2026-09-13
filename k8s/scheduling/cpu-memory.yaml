@@ -1,0 +1,22 @@
+# requests: Scheduler admission input ("does this Node have room?").
+# limits: runtime cap enforced by kubelet / cgroup. Do not treat them as the same.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: cpu-memory-demo
+  namespace: gateway-lab
+  labels:
+    experiment: scheduling
+    demo: cpu-memory
+spec:
+  restartPolicy: Never
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.10
+      resources:
+        requests:
+          cpu: "2"
+          memory: "4Gi"
+        limits:
+          cpu: "2"
+          memory: "4Gi"

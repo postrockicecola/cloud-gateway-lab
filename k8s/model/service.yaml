@@ -1,0 +1,43 @@
+# In-cluster DNS (from another Pod in gateway-lab):
+#   http://model:8080    -> model.gateway-lab.svc.cluster.local
+#   http://mock-a:8080
+#   http://mock-b:8080
+# The host machine does not resolve these names.
+apiVersion: v1
+kind: Service
+metadata:
+  name: model
+  namespace: gateway-lab
+spec:
+  selector:
+    app: model
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-a
+  namespace: gateway-lab
+spec:
+  selector:
+    app: mock-a
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-b
+  namespace: gateway-lab
+spec:
+  selector:
+    app: mock-b
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

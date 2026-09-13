@@ -1,0 +1,26 @@
+# Mode A: real NVIDIA GPU.
+# Do not apply this unless the Node advertises nvidia.com/gpu.
+# GPU extended resources should use matching request and limit (usually limit only).
+apiVersion: v1
+kind: Pod
+metadata:
+  name: gpu-workload
+  namespace: gateway-lab
+  labels:
+    experiment: gpu
+    demo: nvidia-gpu
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    gpu: "true"
+  tolerations:
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+  containers:
+    - name: cuda-vector-add
+      image: nvcr.io/nvidia/k8s/cuda-sample:vectoradd-cuda11.7.1-ubuntu20.04
+      resources:
+        limits:
+          nvidia.com/gpu: 1

@@ -1,0 +1,23 @@
+# Mode B: scheduler simulation only.
+# example.com/mock-gpu is a hand-patched extended resource.
+# It is NOT a real NVIDIA GPU and does not load a device plugin or driver.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mock-gpu-workload
+  namespace: gateway-lab
+  labels:
+    experiment: gpu
+    demo: mock-gpu
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    gpu: "true"
+  containers:
+    - name: pause
+      image: registry.k8s.io/pause:3.10
+      resources:
+        requests:
+          example.com/mock-gpu: 1
+        limits:
+          example.com/mock-gpu: 1

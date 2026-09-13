@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-config
+  namespace: gateway-lab
+data:
+  PROVIDER_NAME: model
+  PORT: "8080"
